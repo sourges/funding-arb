@@ -6,10 +6,13 @@ Usage:
 
 Each CSV row is one 8-hour funding interval. funding_rate is a decimal:
 0.0001 = 0.01% for that interval; positive = longs pay shorts.
+
+The API gives prices in ticks; USD price = ticks x price_increment (from the product spec).
 """
 import csv
 import os
 import sys
+from urllib.parse import unquote
 
 import requests
 
@@ -34,24 +37,48 @@ def _to_float(value):
     return float(value)
 
 
-def parse_row(raw):
-    """Turn one API funding row into a flat dict with float numbers."""
+def _ticks_to_usd(value, price_increment):
+    ticks = _to_float(value)
+    if ticks is None:
+        return None
+    return ticks * price_increment
+
+
+def parse_row(raw, price_increment=1.0):
+    """Turn one API funding row into a flat dict. Prices converted from ticks to USD."""
     return {
         "interval_start": raw["interval_start"],
         "interval_end": raw.get("interval_end", ""),
         "funding_rate": _to_float(raw["funding_rate"]),
-        "mark_price": _to_float(raw.get("mark_price")),
-        "price_index": _to_float(raw.get("price_index")),
+        "mark_price": _ticks_to_usd(raw.get("mark_price"), price_increment),
+        "price_index": _ticks_to_usd(raw.get("price_index"), price_increment),
         "product_id": raw.get("product_id", ""),
     }
 
 
-def fetch_history(base_symbol, begin_time, get=http_get, limit=None):
-    """Page through /funding-rates/ oldest-first and return parsed rows.
+def _spec_list(page):
+    """/product/specs/ returns a plain list; tolerate a {"data": [...]} wrapper too."""
+    if isinstance(page, dict):
+        return page.get("data") or []
+    return page or []
+
+
+def get_price_increment(base_symbol, get=http_get):
+    """Look up the perp's price_increment (USD per tick) from its product spec."""
+    specs = _spec_list(get(settings.SPECS_PATH, {"base_symbol": base_symbol}))
+    for spec in specs:
+        if spec.get("type") == "perpetual" and spec.get("price_increment") is not None:
+            return float(spec["price_increment"])
+    raise ValueError(f"no perpetual spec with price_increment for {base_symbol}")
+
+
+def fetch_history(base_symbol, begin_time, price_increment=1.0, get=http_get, limit=None):
+    """Page through funding rates oldest-first and return parsed rows.
 
     Stops when a page is empty, has no cursor, or repeats the last cursor
-    (guards against looping forever). Rows are de-duplicated by
-    interval_start and returned sorted oldest -> newest.
+    (guards against looping forever). The API returns the cursor already
+    URL-encoded, so it is decoded before being sent back (requests encodes it
+    again). Rows are de-duplicated by interval_start and sorted oldest -> newest.
     """
     if limit is None:
         limit = settings.PAGE_LIMIT
@@ -61,17 +88,17 @@ def fetch_history(base_symbol, begin_time, get=http_get, limit=None):
     last_cursor = None
 
     while True:
-        page = get("/funding-rates/", dict(params))
+        page = get(settings.FUNDING_PATH, dict(params))
         data = page.get("data") or []
         for raw in data:
-            row = parse_row(raw)
+            row = parse_row(raw, price_increment)
             by_start[row["interval_start"]] = row
 
         cursor = (page.get("pagination") or {}).get("cursor")
         if not data or not cursor or cursor == last_cursor:
             break
         last_cursor = cursor
-        params["cursor"] = cursor
+        params["cursor"] = unquote(cursor)
 
     return [by_start[key] for key in sorted(by_start)]
 
@@ -93,18 +120,17 @@ def find_perps(specs):
     perps = []
     for spec in specs:
         text = f"{spec.get('product_name', '')} {spec.get('symbol', '')}".lower()
-        if "perp" in text:
+        if spec.get("type") == "perpetual" or "perp" in text:
             perps.append(spec)
     return perps
 
 
 def list_perps(get=http_get):
     """Print active perps so you can copy base symbols into settings.COINS."""
-    page = get("/product/specs/", {"active": "true"})
-    specs = page.get("data", page) if isinstance(page, dict) else page
+    specs = _spec_list(get(settings.SPECS_PATH, {"active": "true"}))
     perps = find_perps(specs)
     if not perps:
-        print("No product name contained 'perp' - showing all active products:")
+        print("No perpetuals found - showing all active products:")
         perps = specs
     print(f"{'symbol':<14}{'base_symbol':<14}{'contract_size':<16}name")
     for spec in perps:
@@ -120,7 +146,8 @@ def fetch_all(coins, begin_time, data_dir, get=http_get):
         if not base_symbol:
             print(f"{coin}: no base_symbol in settings.COINS - skipped (run --list)")
             continue
-        rows = fetch_history(base_symbol, begin_time, get=get)
+        increment = get_price_increment(base_symbol, get=get)
+        rows = fetch_history(base_symbol, begin_time, increment, get=get)
         counts[coin] = len(rows)
         if not rows:
             print(f"{coin} ({base_symbol}): no funding rows - check the base symbol")
@@ -128,7 +155,8 @@ def fetch_all(coins, begin_time, data_dir, get=http_get):
         filename = os.path.join(data_dir, f"funding_{coin}.csv")
         write_csv(rows, filename)
         print(f"{coin} ({base_symbol}): {len(rows)} rows, "
-              f"{rows[0]['interval_start']} -> {rows[-1]['interval_start']} -> {filename}")
+              f"{rows[0]['interval_start']} -> {rows[-1]['interval_start']}, "
+              f"last mark ${rows[-1]['mark_price']:,.2f} -> {filename}")
     return counts
 
 

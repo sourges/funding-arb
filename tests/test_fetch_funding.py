@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 import fetch_funding as ff
+import settings
 
 
 class FakeApi:
@@ -21,10 +22,15 @@ class FakeApi:
         return self.pages.pop(0)
 
 
-def raw(start, rate, mark="100.0"):
+def raw(start, rate, mark="100.0", index="99.5"):
     return {"interval_start": start, "interval_end": start + "-end",
             "funding_rate": rate, "mark_price": mark,
-            "price_index": "99.5", "product_id": 7}
+            "price_index": index, "product_id": 7}
+
+
+def spec(increment, type_="perpetual"):
+    return {"product_id": 5614, "type": type_, "price_increment": increment,
+            "contract_size": 0.01, "contract_size_unit": "BTC"}
 
 
 class TestParseRow(unittest.TestCase):
@@ -35,14 +41,37 @@ class TestParseRow(unittest.TestCase):
         self.assertEqual(row["price_index"], 99.5)
         self.assertEqual(row["interval_start"], "2026-06-01T00:00:00Z")
 
+    def test_ticks_converted_to_usd(self):
+        # real BTC row from the probe: mark 15338 ticks, index 15196 ticks, $5 per tick
+        row = ff.parse_row(raw("t", 1.0e-4, 15338, 15196), price_increment=5)
+        self.assertEqual(row["mark_price"], 76690.0)    # 15338 x 5
+        self.assertEqual(row["price_index"], 75980.0)   # 15196 x 5
+        self.assertEqual(row["funding_rate"], 0.0001)   # rate is NOT scaled
+
     def test_negative_rate_kept_negative(self):
         row = ff.parse_row(raw("2026-06-01T00:00:00Z", "-0.0003"))
         self.assertEqual(row["funding_rate"], -0.0003)
 
     def test_missing_prices_become_none(self):
-        row = ff.parse_row({"interval_start": "t", "funding_rate": 0.0001})
+        row = ff.parse_row({"interval_start": "t", "funding_rate": 0.0001}, price_increment=5)
         self.assertIsNone(row["mark_price"])
         self.assertIsNone(row["price_index"])
+
+
+class TestPriceIncrement(unittest.TestCase):
+    def test_reads_increment_from_plain_list(self):
+        api = FakeApi([[spec(5)]])
+        self.assertEqual(ff.get_price_increment("BTCUC", get=api), 5.0)
+        self.assertEqual(api.calls[0], (settings.SPECS_PATH, {"base_symbol": "BTCUC"}))
+
+    def test_skips_non_perpetual(self):
+        api = FakeApi([[spec(1, type_="future"), spec(0.2)]])
+        self.assertEqual(ff.get_price_increment("ETHUI", get=api), 0.2)
+
+    def test_no_perpetual_raises(self):
+        api = FakeApi([[spec(1, type_="future")]])
+        with self.assertRaises(ValueError):
+            ff.get_price_increment("NOPE", get=api)
 
 
 class TestFetchHistory(unittest.TestCase):
@@ -65,10 +94,26 @@ class TestFetchHistory(unittest.TestCase):
         ])
         ff.fetch_history("BTCUC", "2026-01-01T00:00:00Z", get=api, limit=50)
         path, first = api.calls[0]
-        self.assertEqual(path, "/funding-rates/")
+        self.assertEqual(path, settings.FUNDING_PATH)
         self.assertEqual(first, {"base_symbol": "BTCUC", "begin_time": "2026-01-01T00:00:00Z",
                                  "order": "asc", "limit": 50})
         self.assertEqual(api.calls[1][1]["cursor"], "c1")
+
+    def test_encoded_cursor_is_decoded_before_sending(self):
+        # API sends "...%2B...%3D"; requests would re-encode it, so we send "+" and "="
+        api = FakeApi([
+            {"data": [raw("A", "0.0001")],
+             "pagination": {"cursor": "AAAAAAAAAAAAAO%2BmAMsJPmWeD5g%3D"}},
+            {"data": [], "pagination": {}},
+        ])
+        ff.fetch_history("BTCUC", "x", get=api)
+        self.assertEqual(api.calls[1][1]["cursor"], "AAAAAAAAAAAAAO+mAMsJPmWeD5g=")
+
+    def test_prices_converted_with_increment(self):
+        api = FakeApi([{"data": [raw("A", "0.0001", 12056, 12000)], "pagination": {}}])
+        rows = ff.fetch_history("ETHUI", "x", price_increment=0.2, get=api)
+        self.assertAlmostEqual(rows[0]["mark_price"], 2411.2)   # 12056 x 0.2
+        self.assertAlmostEqual(rows[0]["price_index"], 2400.0)  # 12000 x 0.2
 
     def test_stops_when_no_cursor(self):
         api = FakeApi([{"data": [raw("A", "0.0001")]}])
@@ -122,17 +167,21 @@ class TestCsvAndFetchAll(unittest.TestCase):
         self.assertEqual(len(back), 2)
         self.assertEqual(float(back[1]["funding_rate"]), -0.0002)
 
-    def test_fetch_all_writes_one_file_per_coin_and_skips_blank(self):
+    def test_fetch_all_writes_usd_prices_and_skips_blank(self):
         api = FakeApi([
-            {"data": [raw("A", "0.0001"), raw("B", "0.0001")], "pagination": {}},
+            [spec(5)],                                              # spec lookup
+            {"data": [raw("A", "0.0001", 15338, 15196),
+                      raw("B", "0.0001", 15304, 15186)], "pagination": {}},
         ])
         counts = ff.fetch_all({"BTC": "BTCUC", "DOGE": ""}, "x", self.tmp, get=api)
         self.assertEqual(counts, {"BTC": 2})
-        self.assertTrue(os.path.exists(os.path.join(self.tmp, "funding_BTC.csv")))
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "funding_DOGE.csv")))
+        with open(os.path.join(self.tmp, "funding_BTC.csv"), newline="") as f:
+            back = list(csv.DictReader(f))
+        self.assertEqual(float(back[1]["mark_price"]), 76520.0)   # 15304 x 5
 
     def test_fetch_all_no_rows_writes_no_file(self):
-        api = FakeApi([{"data": [], "pagination": {}}])
+        api = FakeApi([[spec(0.2)], {"data": [], "pagination": {}}])
         counts = ff.fetch_all({"ETH": "WRONG"}, "x", self.tmp, get=api)
         self.assertEqual(counts, {"ETH": 0})
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "funding_ETH.csv")))
@@ -141,8 +190,8 @@ class TestCsvAndFetchAll(unittest.TestCase):
 class TestFindPerps(unittest.TestCase):
     def test_keeps_only_perps(self):
         specs = [{"symbol": "PBUCZ50", "product_name": "Bitcoin Perpetual"},
-                 {"symbol": "BUSZ26", "product_name": "Bitcoin Dec 2026"},
-                 {"symbol": "PETHZ50", "product_name": "Ether PERP"}]
+                 {"symbol": "BUSZ26", "product_name": "Bitcoin Dec 2026", "type": "future"},
+                 {"symbol": "PETHZ50", "product_name": "Ether", "type": "perpetual"}]
         self.assertEqual([s["symbol"] for s in ff.find_perps(specs)], ["PBUCZ50", "PETHZ50"])
 
 
