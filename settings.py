@@ -18,6 +18,17 @@ COINS = {
     "ETH_small": "ETHUL",    # 0.001 ETH - comparison
 }
 
+# Every Kraken US perp on Bitnomial (from --list, Nov 6, 2026), one contract size per coin
+# (big and small sizes pay identical funding). `python fetch_funding.py --scan` fetches these
+# into data/scan/, then `python scan_funding.py` prints the table.
+SCAN_COINS = {
+    "BTC": "BTCUC", "ETH": "ETHUI", "SOL": "SOLUS", "XRP": "XRPUH", "DOGE": "DOGUK",
+    "ADA": "ADAUK", "AVAX": "AVXUD", "LINK": "LNKUD", "DOT": "DOTUH", "LTC": "LTCUS",
+    "BCH": "BCHUS", "XLM": "XLMUK", "HBAR": "HBRUK", "XTZ": "XTZUK", "AAVE": "AVEUS",
+    "TRX": "TRXUK", "SHIB": "SHBUK",
+}
+SCAN_DIR = "data/scan"
+
 # Fetch history from this time (UTC, ISO 8601). REQUIRED by the API: without it, no rows.
 # Perps started trading 2026-05-16, so earlier dates just return from launch.
 BEGIN_TIME = "2026-05-01T00:00:00Z"

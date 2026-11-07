@@ -3,6 +3,7 @@
 Usage:
     python fetch_funding.py --list     show active Bitnomial perps and their base symbols
     python fetch_funding.py            fetch every coin in settings.COINS -> data/funding_<COIN>.csv
+    python fetch_funding.py --scan     fetch every coin in settings.SCAN_COINS -> data/scan/
 
 Each CSV row is one 8-hour funding interval. funding_rate is a decimal:
 0.0001 = 0.01% for that interval; positive = longs pay shorts.
@@ -163,6 +164,8 @@ def fetch_all(coins, begin_time, data_dir, get=http_get):
 def main(argv):
     if "--list" in argv:
         list_perps()
+    elif "--scan" in argv:
+        fetch_all(settings.SCAN_COINS, settings.BEGIN_TIME, settings.SCAN_DIR)
     else:
         fetch_all(settings.COINS, settings.BEGIN_TIME, settings.DATA_DIR)
 
