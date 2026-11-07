@@ -85,9 +85,9 @@ def split_halves(rows):
     return rows[:middle], rows[middle:]
 
 
-def evaluate(rows, hurdle=HURDLE):
+def evaluate(rows, hurdle=HURDLE, capital=CAPITAL):
     """Full run plus each half, and the pass checks from RULES.md."""
-    full = run_strategy_a(rows)
+    full = run_strategy_a(rows, capital=capital)
     first_half, second_half = split_halves(rows)
     half1 = run_strategy_a(first_half)
     half2 = run_strategy_a(second_half)

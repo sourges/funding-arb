@@ -40,5 +40,25 @@ new no-liquidation check.
 - Next idea (separate locked run): keep $500 margin and top up by selling spot
   when the short loss reaches half the margin.
 
-## Result
-(empty until the run)
+## Result (run Nov 7, 2026)
+
+| | BTC | ETH |
+|---|---|---|
+| Net (same as Backtest 1) | $35.01 | $51.79 |
+| Annualized on $1,740 | 4.26% | 6.30% |
+| Half 1 / Half 2 net | $19.81 / $15.41 | $20.10 / $28.09 |
+| Smallest margin cushion (equity - maintenance) | $557.56 | $79.42 |
+| Liquidated | never | never |
+| **Locked verdict** | **PASS** | **PASS** |
+
+### Findings (not part of pass/fail)
+- ETH's cushion got down to $79.42 on 2026-09-21 (ETH ~$2,777, +43.5%):
+  survived, but close. As noted above, check 3 was expected to pass.
+- BTC beats USDC by only ~0.5%/yr (~$9/yr on $1,740). One interval
+  (2026-05-28 16:00, 0.424%) paid $3.59 more than a normal 0.01% interval;
+  without it BTC would be ~3.82%, barely over the hurdle.
+- ETH's edge is larger (~2.5%/yr over USDC) because qty is fixed and funding
+  is paid on qty x mark: ETH's price rose ($1,935 -> $2,235) so the position
+  grew, while BTC's fell ($85,000 -> ~$76,700) so it shrank. BTC also lost
+  $8.35 on basis.
+- Both results depend on funding staying at Bitnomial's 0.01% default.
