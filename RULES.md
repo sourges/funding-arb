@@ -47,5 +47,35 @@ beat leaving the same cash in USDC at 3.75%/yr? No tuning in this run.
 - Strategy B (switch on/off by trailing funding) only gets its own locked rules
   if A passes.
 
-## Result
-(empty until the run)
+## Result (run Nov 6, 2026)
+
+Data note: Bitnomial left `price_index` blank on 9 rows (2026-07-05/06 and
+2026-07-26/27, same rows in BTC and ETH). Strategy A only uses price_index at
+entry/exit and the half split (rows 0, 257, 258, 516), none blank, so no effect.
+
+| | BTC | ETH |
+|---|---|---|
+| Funding avg / yr | 11.89% | 10.95% |
+| Intervals at exactly 0.01% | 99.6% (2 exceptions) | 100% |
+| Negative intervals | 0% | 0% |
+| Funding | $47.85 | $56.90 |
+| Basis | -$8.35 | $0.00 |
+| Fees | -$4.49 | -$5.11 |
+| Net | $35.01 | $51.79 |
+| Annualized on $1,500 | 4.94% | 7.31% |
+| Half 1 / Half 2 net | $19.81 / $15.41 | $20.10 / $28.09 |
+| Largest short loss vs $500 margin | $18.47 | $435.25 |
+| **Locked verdict** | **PASS** | **PASS** |
+
+Big vs small contracts: funding identical on all 187 overlapping intervals (BTC and ETH).
+
+### Findings (not part of pass/fail)
+- Funding is effectively a fixed 0.01% per 8h (= Bitnomial's interest_rate
+  component). The two BTC exceptions: 0.424% on 2026-05-28 16:00 and 0.041% on
+  2026-06-02 08:00. The return is basically "0.01% x 3 x 365 minus fees".
+- ETH margin: with $500 margin and ~15.7% maintenance, the short gets liquidated
+  if ETH rises ~30% above entry (mark > ~$2,508). ETH reached $2,777 on
+  2026-09-21, so this exact setup WOULD HAVE BEEN LIQUIDATED without a top-up.
+  BTC's limit (~$109,800) was never close (peak $86,570).
+- So the PASS assumes margin is topped up in time. More margin = more capital =
+  lower % return; that is a new locked run (Backtest 2), not a re-run of this one.
