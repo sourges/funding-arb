@@ -133,7 +133,7 @@ class TestGaps(unittest.TestCase):
         rows = [r("kalshi", "BTC", "2026-11-07T21:00:00Z", 0.10),
                 r("kalshi", "BTC", "2026-11-07T13:00:00Z", 0.30),
                 r("kraken", "BTC", "2026-11-07T09:00:00Z", 0.1095)]
-        self.assertEqual(cv.latest_by_venue(rows), {"BTC": {"kalshi": 0.10, "kraken": 0.1095}})
+        self.assertEqual(cv.latest_by_venue(rows, NOW), {"BTC": {"kalshi": 0.10, "kraken": 0.1095}})
 
     def test_min_rows(self):
         self.assertEqual(cv.min_rows(24, 1.0, 0.6), 15)      # 24 x 0.6 = 14.4 -> 15
@@ -156,6 +156,27 @@ class TestGaps(unittest.TestCase):
                 r("kalshi", "BTC", "2026-11-07T21:00:00Z", 0.10),
                 dict(r("coinbase", "BTC", "2026-11-08T11:00:00Z", 0.05), interval_hours=1.0)]
         self.assertEqual(cv.average_by_venue(rows, NOW, min_coverage=0.6), {"BTC": {"kalshi": 0.20}})
+
+    def test_late_venue_window_ends_at_its_newest_row(self):
+        # Kraken publishes late: newest row is 20h old. Rows at -20h, -28h, -36h, -44h.
+        # Window = newest - 24h -> keeps -20, -28, -36 (3 rows), drops -44.
+        # avg = (0.10 + 0.20 + 0.30) / 3 = 0.20. A window ending at NOW would see 1 row only.
+        times = [(NOW - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ") for h in (20, 28, 36, 44)]
+        rows = [r("kraken", "BTC", t, a) for t, a in zip(times, (0.10, 0.20, 0.30, 0.90))]
+        self.assertAlmostEqual(cv.average_by_venue(rows, NOW)["BTC"]["kraken"], 0.20)
+
+    def test_stale_venue_dropped(self):
+        # newest row 49h old (> 48h) -> left out of averages and latest
+        times = [(NOW - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ") for h in (49, 57)]
+        rows = [r("kalshi", "BTC", t, 0.3) for t in times]
+        self.assertEqual(cv.average_by_venue(rows, NOW, stale_hours=48), {})
+        self.assertEqual(cv.latest_by_venue(rows, NOW, stale_hours=48), {})
+
+    def test_exactly_48h_old_still_fresh(self):
+        times = [(NOW - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ") for h in (48, 56)]
+        rows = [r("kalshi", "BTC", t, 0.3) for t in times]
+        self.assertAlmostEqual(cv.latest_by_venue(rows, NOW, stale_hours=48)["BTC"]["kalshi"], 0.3)
+        self.assertAlmostEqual(cv.average_by_venue(rows, NOW, stale_hours=48)["BTC"]["kalshi"], 0.3)
 
     def test_average_last_24h_only(self):
         rows = [r("kalshi", "BTC", "2026-11-07T13:00:00Z", 0.30),      # in (NOW - 23h)
@@ -234,6 +255,14 @@ class TestMainHelpers(unittest.TestCase):
         self.assertEqual(rows[0]["annualized"], 0.1095)
         with open(path, newline="") as f:
             self.assertEqual(len(list(csv.DictReader(f))), 2)            # one header only
+
+    def test_load_recent_default_keeps_72h(self):
+        # late Kraken rows can be ~a day old; default must keep 60h-old rows, drop 73h-old
+        path = os.path.join(self.tmp, "log.csv")
+        t60 = (NOW - timedelta(hours=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        t73 = (NOW - timedelta(hours=73)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        mc.append_rows([r("kraken", "BTC", t60, 0.1), r("kraken", "BTC", t73, 0.2)], path)
+        self.assertEqual([x["funding_time"] for x in mc.load_recent(path, NOW)], [t60])
 
     def test_coinbase_one_page(self):
         page = {"products": [cb_product("BTC PERP", pid="b")], "pagination": {"has_next": False}}

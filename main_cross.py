@@ -115,7 +115,7 @@ def append_rows(rows, path):
         writer.writerows(rows)
 
 
-def load_recent(path, now_utc, hours=48):
+def load_recent(path, now_utc, hours=72):
     """Rows from the CSV within the last `hours` (for 24h averages after a restart)."""
     if not os.path.exists(path):
         return []
@@ -199,12 +199,13 @@ async def main():
         if fresh:
             append_rows(fresh, s.LOG_FILE)
             recent.extend(fresh)
-        cutoff = now - timedelta(hours=48)
+        cutoff = now - timedelta(hours=72)
         recent = [r for r in recent if cv.parse_time(r["funding_time"]) >= cutoff]
         state["seen"] = cv.prune_seen(state["seen"], now)
 
-        avg_gaps = cv.gaps(cv.average_by_venue(recent, now, min_coverage=s.MIN_COVERAGE))
-        latest_gaps = cv.gaps(cv.latest_by_venue(recent))
+        avg_gaps = cv.gaps(cv.average_by_venue(recent, now, min_coverage=s.MIN_COVERAGE,
+                                                stale_hours=s.STALE_HOURS))
+        latest_gaps = cv.gaps(cv.latest_by_venue(recent, now, stale_hours=s.STALE_HOURS))
         for g in cv.check_gap_alerts(avg_gaps, s.STEADY_GAP, s.RESET_FACTOR, state["steady_alerted"]):
             await alert(cv.alert_message("steady", g))
         for g in cv.check_gap_alerts(latest_gaps, s.SPIKE_GAP, s.RESET_FACTOR, state["spike_alerted"]):

@@ -135,14 +135,31 @@ def prune_seen(seen, now_utc, keep_days=7):
 
 # ---------- gaps ----------
 
-def latest_by_venue(rows):
-    """coin -> venue -> annualized of that venue's most recent row."""
-    latest = {}
+def _group(rows):
+    """coin -> venue -> list of rows."""
+    grouped = {}
     for r in rows:
-        best = latest.setdefault(r["coin"], {}).get(r["venue"])
-        if best is None or r["funding_time"] > best["funding_time"]:
-            latest[r["coin"]][r["venue"]] = r
-    return {coin: {v: r["annualized"] for v, r in venues.items()} for coin, venues in latest.items()}
+        grouped.setdefault(r["coin"], {}).setdefault(r["venue"], []).append(r)
+    return grouped
+
+
+def _fresh(venue_rows, now_utc, stale_hours):
+    """False if this venue's newest row is older than stale_hours (venue down/stopped)."""
+    newest = max(parse_time(r["funding_time"]) for r in venue_rows)
+    return newest >= now_utc - timedelta(hours=stale_hours)
+
+
+def latest_by_venue(rows, now_utc, stale_hours=48):
+    """coin -> venue -> annualized of that venue's most recent row (stale venues left out)."""
+    result = {}
+    for coin, venues in _group(rows).items():
+        kept = {}
+        for venue, vrows in venues.items():
+            if _fresh(vrows, now_utc, stale_hours):
+                kept[venue] = max(vrows, key=lambda r: r["funding_time"])["annualized"]
+        if kept:
+            result[coin] = kept
+    return result
 
 
 def min_rows(hours, interval_hours, min_coverage):
@@ -150,24 +167,25 @@ def min_rows(hours, interval_hours, min_coverage):
     return math.ceil(hours / interval_hours * min_coverage)
 
 
-def average_by_venue(rows, now_utc, hours=24, min_coverage=0.6):
-    """coin -> venue -> average annualized over the last `hours`.
+def average_by_venue(rows, now_utc, hours=24, min_coverage=0.6, stale_hours=48):
+    """coin -> venue -> average annualized over that venue's own last `hours`.
 
-    A venue only counts once it covers enough of the window (min_coverage), so one
-    Coinbase reading right after startup isn't treated as a 24h average.
+    The window ends at each venue's NEWEST row, not at "now", because venues publish
+    late (Bitnomial about one interval behind). A venue counts only if it covers
+    enough of its window (min_coverage) and its newest row isn't stale.
     """
-    cutoff = now_utc - timedelta(hours=hours)
-    sums = {}
-    for r in rows:
-        if parse_time(r["funding_time"]) < cutoff:
-            continue
-        total, count, interval = sums.setdefault(r["coin"], {}).get(
-            r["venue"], (0.0, 0, r["interval_hours"]))
-        sums[r["coin"]][r["venue"]] = (total + r["annualized"], count + 1, interval)
     result = {}
-    for coin, venues in sums.items():
-        kept = {v: t / c for v, (t, c, i) in venues.items()
-                if c >= min_rows(hours, i, min_coverage)}
+    for coin, venues in _group(rows).items():
+        kept = {}
+        for venue, vrows in venues.items():
+            if not _fresh(vrows, now_utc, stale_hours):
+                continue
+            newest = max(parse_time(r["funding_time"]) for r in vrows)
+            window = [r for r in vrows
+                      if parse_time(r["funding_time"]) > newest - timedelta(hours=hours)]
+            interval = window[0]["interval_hours"]
+            if len(window) >= min_rows(hours, interval, min_coverage):
+                kept[venue] = sum(r["annualized"] for r in window) / len(window)
         if kept:
             result[coin] = kept
     return result
