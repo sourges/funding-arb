@@ -6,3 +6,7 @@ monitor_state.json
 monitor_state.json.tmp
 monitor_funding.csv
 monitor_errors.txt
+cross_state.json
+cross_state.json.tmp
+cross_funding.csv
+cross_errors.txt

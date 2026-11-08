@@ -32,6 +32,17 @@ Needs `.env` with `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (same as the sprea
 Run `python main_monitor.py` or `start_monitor.bat`. Settings in `monitor_settings.py`.
 Delete `monitor_state.json` to restart the pretend position from the latest interval.
 
+## Cross-venue funding logger (24/7 PC)
+
+Hourly: Kraken US (Bitnomial), Coinbase US perps and Kalshi crypto perps -> one row per
+venue / coin / funding time in `cross_funding.csv` (rate, interval, yearly %, price).
+Gaps: for a coin on 2+ venues, long the lower rate, short the higher. Telegram:
+- steady gap: 24h average >= 15%/yr (once per coin+pair until it drops below 12%)
+- spike gap: latest >= 100%/yr (possible quick trade, if fees allow)
+- daily summary at 9 AM (top 5 gaps), a venue failing 4 checks in a row
+Settings in `cross_settings.py`. Run `python main_cross.py` or `start_cross.bat`.
+No orders, no keys. Same `.env` (Telegram) as the ETH monitor.
+
 ## Rule
 
 Backtest rules and pass criteria get written down and pushed BEFORE the backtest
