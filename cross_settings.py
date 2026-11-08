@@ -21,6 +21,7 @@ SPIKE_GAP = 1.00        # latest single gap between two venues
 RESET_FACTOR = 0.8      # alert again only after the gap drops below 80% of its level
 MIN_COVERAGE = 0.6      # a venue counts in the 24h average only with 60% of the day logged
                         # (Coinbase hourly: 15 rows; Kraken/Kalshi 8h: 2 rows)
+STALE_HOURS = 48        # a venue whose newest row is older than this is left out of gaps
 
 CHECK_MINUTES = 60      # Coinbase funding changes hourly
 SUMMARY_HOUR = 9        # daily Telegram summary (PC clock)
