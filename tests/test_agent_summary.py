@@ -283,6 +283,21 @@ class TestDataHealth(unittest.TestCase):
                           got["kalshi"]["missing"]), (1, 1, []))
 
 
+class TestDropCoins(unittest.TestCase):
+    def test_excluded_coins_are_removed_and_listed_once(self):
+        rows = [r("coinbase", "US 500", "2026-11-10T00:00:00Z", 0.5),
+                r("coinbase", "US 500", "2026-11-10T01:00:00Z", 0.5),
+                r("coinbase", "BTC", "2026-11-10T00:00:00Z", 0.1),
+                r("coinbase", "CHINA", "2026-11-10T00:00:00Z", 0.9)]
+        kept, dropped = a.drop_coins(rows, ["US 500", "CHINA", "TECH"])
+        self.assertEqual([x["coin"] for x in kept], ["BTC"])
+        self.assertEqual(dropped, ["CHINA", "US 500"])           # TECH wasn't in the rows
+
+    def test_nothing_to_drop(self):
+        rows = [r("kraken", "BTC", "2026-11-10T00:00:00Z", 0.1)]
+        self.assertEqual(a.drop_coins(rows, ["TECH"]), (rows, []))
+
+
 class TestFileAndText(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -342,6 +357,22 @@ class TestFileAndText(unittest.TestCase):
         self.assertIn("Data starts 2026-11-10 00:00 UTC: 2.5 days", text)
         self.assertIn("kraken: 8 rows since 2026-11-10, 3 in the last 24h, newest row 4.0h old", text)
         self.assertIn("4. FLIPS: daily gap changed sign, 2026-11-05 to 2026-11-11\nnone", text)
+
+    def test_excluded_coins_never_reach_the_text(self):
+        rows = self.sample()
+        for t in ("2026-11-11T16:00:00Z", "2026-11-12T00:00:00Z", "2026-11-12T08:00:00Z"):
+            rows.append(r("kraken", "TECH", t, 0.90, price=50.0))
+            rows.append(r("kalshi", "TECH", t, -0.90, price=50.0))
+        with mock.patch.object(a.s, "EXCLUDE_COINS", ["TECH"]):
+            text = a.build_text(rows, NOW)
+        self.assertIn("Left out (not crypto): TECH", text)
+        self.assertEqual(text.count("TECH"), 1)                 # only on that one line
+        # the 180% TECH gap would have been the top line; BTC's 20% is still first
+        self.assertIn("1. TOP GAPS, 24h average\nBTC: long kalshi", text)
+
+    def test_no_left_out_line_when_nothing_was_dropped(self):
+        with mock.patch.object(a.s, "EXCLUDE_COINS", ["TECH"]):
+            self.assertNotIn("Left out", a.build_text(self.sample(), NOW))
 
     def test_text_never_mentions_profit(self):
         text = a.build_text(self.sample(), NOW).lower()

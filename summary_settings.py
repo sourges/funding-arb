@@ -10,3 +10,7 @@ LOOKBACK_DAYS = 7        # flips, venue habits and the long average use this man
 MIN_COVERAGE = 0.6       # a venue's day counts only with 60% of its rows logged
 STALE_HOURS = 48         # same meaning as in cross_settings
 PRICE_VENUES = ["kraken", "coinbase", "kalshi"]   # first venue that has the coin gives its price
+
+# Not crypto: left out of the whole summary (the log still keeps them).
+# Coinbase lists stock-index and gold perps next to its crypto ones; add new ones here.
+EXCLUDE_COINS = ["CHINA", "TECH", "US 500", "DFNSE", "PAXG"]

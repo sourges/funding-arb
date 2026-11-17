@@ -9,6 +9,8 @@ Reads cross_funding.csv (never writes to it) and writes agent_summary.txt:
   6. price context   each coin's 24h and 7d price change
   7. data health     rows, first/last row and missing coins per venue
 
+Coins in summary_settings.EXCLUDE_COINS (stock-index and gold perps) are left out.
+
 It does NOT work out profit, and nothing about the RULES_3 forward test.
 A "day" is a UTC calendar day. Only finished days are used (today is left out).
 
@@ -40,6 +42,14 @@ def load_rows(path):
                          "annualized": float(r["annualized"]),
                          "price": float(r["price"]) if r["price"] else None})
     return rows
+
+
+def drop_coins(rows, exclude):
+    """(rows without the excluded coins, sorted list of excluded coins that were present)."""
+    skip = set(exclude)
+    kept = [r for r in rows if r["coin"] not in skip]
+    dropped = sorted({r["coin"] for r in rows if r["coin"] in skip})
+    return kept, dropped
 
 
 # ---------- daily averages and daily gaps ----------
@@ -234,6 +244,9 @@ def build_text(rows, now_utc):
     out = [f"FUNDING SUMMARY {now_utc:%Y-%m-%d %H:%M} UTC",
            "Rates are yearly %. + means longs pay shorts. A gap = short venue minus long venue.",
            "Days are UTC days; today is not finished, so it is left out of streaks and flips."]
+    rows, dropped = drop_coins(rows, s.EXCLUDE_COINS)
+    if dropped:
+        out.append(f"Left out (not crypto): {', '.join(dropped)}")
     if not rows:
         return "\n".join(out + ["", "NO DATA: cross_funding.csv is missing or empty."])
 
