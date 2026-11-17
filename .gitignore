@@ -10,3 +10,4 @@ cross_state.json
 cross_state.json.tmp
 cross_funding.csv
 cross_errors.txt
+agent_summary.txt

@@ -43,6 +43,16 @@ Gaps: for a coin on 2+ venues, long the lower rate, short the higher. Telegram:
 Settings in `cross_settings.py`. Run `python main_cross.py` or `start_cross.bat`.
 No orders, no keys. Same `.env` (Telegram) as the ETH monitor.
 
+## Daily summary for the idea agent
+
+`python agent_summary.py` reads `cross_funding.csv` (never changes it) and writes
+`agent_summary.txt`: top gaps (24h and 7d), streaks at or above 10%/yr, movers, sign
+flips, venue habits, price changes and data health. Plain numbers only, worked out in
+code; this is the text the idea agent will read. Settings in `summary_settings.py`.
+- It never works out profit, and nothing about the RULES_3 forward test.
+- An idea that comes from this data is tested only on rows logged AFTER the idea
+  was written down.
+
 ## Rule
 
 Backtest rules and pass criteria get written down and pushed BEFORE the backtest
