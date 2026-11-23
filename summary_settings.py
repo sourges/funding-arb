@@ -13,4 +13,4 @@ PRICE_VENUES = ["kraken", "coinbase", "kalshi"]   # first venue that has the coi
 
 # Not crypto: left out of the whole summary (the log still keeps them).
 # Coinbase lists stock-index and gold perps next to its crypto ones; add new ones here.
-EXCLUDE_COINS = ["CHINA", "TECH", "US 500", "DFNSE", "PAXG"]
+EXCLUDE_COINS = ["CHINA", "TECH", "US 500", "DFNSE", "PAXG", "AI"]
